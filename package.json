@@ -84,6 +84,13 @@
     "turbo": "^2.5.6",
     "typescript": "^5.9.2"
   },
+  "dependencies": {
+    "array-buffer-to-hex": "^1.0.0",
+    "base64-arraybuffer": "^1.0.2",
+    "convert-hex": "^0.1.0",
+    "events": "^3.3.0",
+    "react-native-webrtc": "^124.0.7"
+  },
   "peerDependencies": {
     "react": "*",
     "react-native": "*"

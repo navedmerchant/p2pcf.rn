@@ -1,5 +1,10 @@
-import P2pcfRn from './NativeP2pcfRn';
+/**
+ * P2PCF for React Native
+ * Peer-to-peer WebRTC connections with Cloudflare Workers signaling
+ */
 
-export function multiply(a: number, b: number): number {
-  return P2pcfRn.multiply(a, b);
-}
+import P2PCF from './P2PCF';
+
+export default P2PCF;
+export { P2PCF };
+export * from './types';
