@@ -11,12 +11,6 @@ import {
   RTCSessionDescription,
   RTCIceCandidate,
 } from 'react-native-webrtc';
-import {
-  encode as arrayBufferToBase64,
-  decode as base64ToArrayBuffer,
-} from 'base64-arraybuffer';
-import { hexToBytes } from 'convert-hex';
-import arrayBufferToHex from 'array-buffer-to-hex';
 
 const CONNECT_TIMEOUT = 15000;
 const MAX_MESSAGE_LENGTH_BYTES = 16000;
@@ -123,10 +117,30 @@ const removeInPlace = <T>(
   return a;
 };
 
-const hexToBase64 = (hex: string): string =>
-  arrayBufferToBase64(hexToBytes(hex).buffer as ArrayBuffer);
-const base64ToHex = (b64: string): string =>
-  arrayBufferToHex(base64ToArrayBuffer(b64));
+const hexToBase64 = (hex: string): string => {
+  // Convert hex string to bytes
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+  }
+
+  // Convert bytes to base64
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+};
+
+const base64ToHex = (b64: string): string => {
+  const binary = atob(b64);
+  let hex = '';
+  for (let i = 0; i < binary.length; i++) {
+    const h = binary.charCodeAt(i).toString(16);
+    hex += h.length === 2 ? h : '0' + h;
+  }
+  return hex.toUpperCase();
+};
 
 function createSdp(
   isOffer: boolean,
@@ -310,6 +324,11 @@ class SimplePeerImplementation extends EventEmitter implements SimplePeer {
 
   signal(data: any) {
     if (data.type === 'offer') {
+      if (!data.sdp) {
+        console.error('[SimplePeer] Offer missing SDP');
+        return;
+      }
+
       this._pc
         .setRemoteDescription(new RTCSessionDescription(data))
         .then(() => this._pc.createAnswer())
@@ -324,15 +343,45 @@ class SimplePeerImplementation extends EventEmitter implements SimplePeer {
             sdp: this._pc.localDescription?.sdp,
           });
         })
-        .catch((err: Error) => this.emit('error', err));
+        .catch((err: Error) => {
+          console.error('[SimplePeer] Error handling offer:', err);
+          this.emit('error', err);
+        });
     } else if (data.type === 'answer') {
+      if (!data.sdp) {
+        console.error('[SimplePeer] Answer missing SDP');
+        return;
+      }
+
+      // Ensure we have a local description before setting remote
+      if (!this._pc.localDescription) {
+        console.warn(
+          '[SimplePeer] No local description when receiving answer, waiting...'
+        );
+        setTimeout(() => this.signal(data), 100);
+        return;
+      }
+
       this._pc
         .setRemoteDescription(new RTCSessionDescription(data))
-        .catch((err: Error) => this.emit('error', err));
+        .catch((err: Error) => {
+          console.error('[SimplePeer] Error setting remote description:', err);
+          this.emit('error', err);
+        });
     } else if (data.candidate) {
+      if (!data.candidate.candidate) {
+        console.log('[SimplePeer] Received end-of-candidates signal');
+        return;
+      }
+
       this._pc
         .addIceCandidate(new RTCIceCandidate(data.candidate))
-        .catch((err: Error) => this.emit('error', err));
+        .catch((err: Error) => {
+          // Ignore errors for candidates received before remote description
+          if (err.message && err.message.indexOf('invalidStateError') === -1) {
+            console.warn('[SimplePeer] Error adding ICE candidate:', err);
+          }
+        });
     }
   }
 
@@ -413,6 +462,13 @@ export default class P2PCF extends EventEmitter {
   constructor(clientId = '', roomId = '', options: P2PCFOptions = {}) {
     super();
 
+    console.log(
+      '[P2PCF] Initializing with clientId:',
+      clientId,
+      'roomId:',
+      roomId
+    );
+
     if (!clientId || clientId.length < 4) {
       throw new Error('Client ID must be at least four characters');
     }
@@ -473,22 +529,41 @@ export default class P2PCF extends EventEmitter {
     this.startIdlePollingAt = now + this.idlePollingAfterMs;
 
     this.contextId = randomstring(20);
+
+    console.log(
+      '[P2PCF] Initialized with sessionId:',
+      this.sessionId,
+      'contextId:',
+      this.contextId
+    );
   }
 
   async start() {
+    console.log('[P2PCF] Starting P2P connection...');
     this.startedAtTimestamp = Date.now();
 
     const [udpEnabled, isSymmetric, reflexiveIps, dtlsFingerprint] =
       await this._getNetworkSettings();
 
-    if (this.finished) return;
+    if (this.finished) {
+      console.log('[P2PCF] Start aborted - already finished');
+      return;
+    }
 
     this.udpEnabled = udpEnabled;
     this.isSymmetric = isSymmetric;
     this.reflexiveIps = reflexiveIps;
     this.dtlsFingerprint = dtlsFingerprint;
 
+    console.log('[P2PCF] Network settings detected:', {
+      udpEnabled,
+      isSymmetric,
+      reflexiveIps: Array.from(reflexiveIps),
+      dtlsFingerprint: dtlsFingerprint ? 'present' : 'missing',
+    });
+
     this.networkSettingsInterval = setInterval(async () => {
+      console.log('[P2PCF] Checking for network changes...');
       const [
         newUdpEnabled,
         newIsSymmetric,
@@ -496,7 +571,7 @@ export default class P2PCF extends EventEmitter {
         newDtlsFingerprint,
       ] = await this._getNetworkSettings();
 
-      if (
+      const networkChanged =
         newUdpEnabled !== this.udpEnabled ||
         newIsSymmetric !== this.isSymmetric ||
         newDtlsFingerprint !== this.dtlsFingerprint ||
@@ -505,8 +580,12 @@ export default class P2PCF extends EventEmitter {
         ) ||
         !!Array.from(this.reflexiveIps).find(
           (ip) => !Array.from(newReflexiveIps).find((ip2) => ip === ip2)
-        )
-      ) {
+        );
+
+      if (networkChanged) {
+        console.log(
+          '[P2PCF] Network settings changed, resetting data timestamp'
+        );
         this.dataTimestamp = null;
       }
 
@@ -517,10 +596,14 @@ export default class P2PCF extends EventEmitter {
     }, this.networkChangePollIntervalMs);
 
     this.stepInterval = setInterval(() => this._step(), 500);
+    console.log('[P2PCF] Started successfully with polling interval');
   }
 
   send(peer: SimplePeer, msg: ArrayBuffer | Uint8Array) {
-    if (!peer.connected) return;
+    if (!peer.connected) {
+      console.warn('[P2PCF] Attempted to send to disconnected peer:', peer.id);
+      return;
+    }
 
     let dataArrBuffer: ArrayBuffer;
 
@@ -546,9 +629,25 @@ export default class P2PCF extends EventEmitter {
       new Uint16Array(dataArrBuffer, 0, 1)[0] === CHUNK_MAGIC_WORD
     ) {
       messageId = Math.floor(Math.random() * 256 * 128);
+      console.log(
+        '[P2PCF] Message too large, chunking with messageId:',
+        messageId,
+        'size:',
+        dataArrBuffer.byteLength
+      );
     }
 
     if (messageId !== null) {
+      const totalChunks = Math.ceil(
+        dataArrBuffer.byteLength / CHUNK_MAX_LENGTH_BYTES
+      );
+      console.log('[P2PCF] Sending chunked message:', {
+        messageId,
+        totalChunks,
+        totalSize: dataArrBuffer.byteLength,
+        peerId: peer.id,
+      });
+
       for (
         let offset = 0, chunkId = 0;
         offset < dataArrBuffer.byteLength;
@@ -581,17 +680,25 @@ export default class P2PCF extends EventEmitter {
         peer.send(buf);
       }
     } else {
+      console.log(
+        '[P2PCF] Sending message to peer:',
+        peer.id,
+        'size:',
+        dataArrBuffer.byteLength
+      );
       peer.send(dataArrBuffer);
     }
   }
 
   broadcast(msg: ArrayBuffer | Uint8Array) {
+    console.log('[P2PCF] Broadcasting message to', this.peers.size, 'peers');
     for (const peer of this.peers.values()) {
       this.send(peer, msg);
     }
   }
 
   destroy() {
+    console.log('[P2PCF] Destroying P2P connection...');
     if (!this.finished) {
       this._step(true);
     }
@@ -606,30 +713,68 @@ export default class P2PCF extends EventEmitter {
       this.stepInterval = null;
     }
 
+    console.log('[P2PCF] Destroying', this.peers.size, 'peers');
     for (const peer of this.peers.values()) {
       peer.destroy();
     }
+    console.log('[P2PCF] P2P connection destroyed');
   }
 
   private async _step(finish = false) {
     const now = Date.now();
 
     if (finish) {
-      if (this.finished) return;
-      if (!this.deleteKey) return;
+      if (this.finished) {
+        console.log('[P2PCF] Step finish aborted - already finished');
+        return;
+      }
+      if (!this.deleteKey) {
+        console.warn('[P2PCF] Step finish aborted - no deleteKey');
+        return;
+      }
+      console.log('[P2PCF] Finishing P2P connection...');
       this.finished = true;
     } else {
-      if (this.nextStepTime > now) return;
-      if (this.isSending) return;
-      if (this.reflexiveIps.size === 0) return;
+      if (this.nextStepTime > now) {
+        console.log('[P2PCF] Step skipped - nextStepTime not reached');
+        return;
+      }
+      if (this.isSending) {
+        console.log('[P2PCF] Step skipped - already sending');
+        return;
+      }
+      if (this.reflexiveIps.size === 0) {
+        console.log('[P2PCF] Step skipped - no reflexive IPs detected');
+        return;
+      }
     }
 
     this.isSending = true;
 
     try {
-      const localDtlsFingerprintBase64 = hexToBase64(
-        this.dtlsFingerprint!.replace(/:/g, '')
+      console.log(
+        '[P2PCF] Executing step, finish:',
+        finish,
+        'peers:',
+        this.peers.size
       );
+
+      const dtlsFingerprintHex = this.dtlsFingerprint!.replace(/:/g, '');
+      const localDtlsFingerprintBase64 = hexToBase64(dtlsFingerprintHex);
+
+      console.log('[P2PCF] DTLS fingerprint conversion:', {
+        original: this.dtlsFingerprint,
+        hex: dtlsFingerprintHex,
+        base64: localDtlsFingerprintBase64,
+        base64Length: localDtlsFingerprintBase64.length,
+      });
+
+      if (localDtlsFingerprintBase64.length !== 44) {
+        console.error('[P2PCF] DTLS fingerprint base64 length is not 44!', {
+          length: localDtlsFingerprintBase64.length,
+          value: localDtlsFingerprintBase64,
+        });
+      }
 
       const localPeerInfo = [
         this.sessionId,
@@ -688,43 +833,94 @@ export default class P2PCF extends EventEmitter {
         headers['X-Worker-Method'] = 'DELETE';
       }
 
+      console.log('[P2PCF] Sending request to worker:', {
+        url: this.workerUrl,
+        method: finish ? 'DELETE' : 'POST',
+        hasLocalPeerInfo: !!payload.d,
+        packagesCount: payload.p ? payload.p.length : 0,
+        payload: JSON.stringify(payload, null, 2),
+      });
+
       const res = await fetch(this.workerUrl, {
         method: 'POST',
         headers,
         body,
       });
 
-      const { ps: remotePeerDatas, pk: remotePackages, dk } = await res.json();
+      console.log(
+        '[P2PCF] Response status:',
+        res.status,
+        'statusText:',
+        res.statusText
+      );
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('[P2PCF] Worker returned error:', {
+          status: res.status,
+          statusText: res.statusText,
+          errorText,
+          sentPayload: JSON.parse(body),
+        });
+        throw new Error(`Worker error ${res.status}: ${errorText}`);
+      }
+
+      const responseData = await res.json();
+      console.log('[P2PCF] Worker response data:', responseData);
+      const { ps: remotePeerDatas, pk: remotePackages, dk } = responseData;
 
       if (dk) {
+        console.log('[P2PCF] Received deleteKey from worker');
         this.deleteKey = dk;
       }
 
       if (finish) return;
 
       if (remotePeerDatas.length === 0 && !this.sentFirstPoll) {
+        console.log(
+          '[P2PCF] First poll with no remote peers, sending initial data'
+        );
         payload.d = localPeerInfo;
         payload.t = this.dataTimestamp;
         payload.x = this.stateExpirationIntervalMs;
         payload.p = this.packages;
         this.lastPackages = JSON.stringify(this.packages);
 
+        console.log('[P2PCF] Sending empty room follow-up request');
         const emptyRes = await fetch(this.workerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
 
-        const { dk: emptyDk } = await emptyRes.json();
+        console.log('[P2PCF] Empty room response status:', emptyRes.status);
 
-        if (emptyDk) {
-          this.deleteKey = emptyDk;
+        if (!emptyRes.ok) {
+          const errorText = await emptyRes.text();
+          console.error('[P2PCF] Empty room request error:', {
+            status: emptyRes.status,
+            errorText,
+            sentPayload: payload,
+          });
+        } else {
+          const emptyResponseData = await emptyRes.json();
+          const { dk: emptyDk } = emptyResponseData;
+
+          if (emptyDk) {
+            this.deleteKey = emptyDk;
+          }
         }
       }
 
       this.sentFirstPoll = true;
 
       const previousPeerSessionIds = Array.from(this.peers.keys());
+
+      console.log('[P2PCF] Received worker response:', {
+        remotePeerCount: remotePeerDatas.length,
+        remotePackageCount: remotePackages.length,
+        hasDeleteKey: !!dk,
+      });
 
       this._handleWorkerResponse(
         localPeerInfo,
@@ -746,6 +942,7 @@ export default class P2PCF extends EventEmitter {
         );
 
       if (peersChanged) {
+        console.log('[P2PCF] Peers changed, adjusting polling rates');
         this.stopFastPollingAt = now + this.fastPollingDurationMs;
         this.startIdlePollingAt = now + this.idlePollingAfterMs;
       }
@@ -757,8 +954,14 @@ export default class P2PCF extends EventEmitter {
       } else {
         this.nextStepTime = now + this.slowPollingRateMs;
       }
+
+      console.log(
+        '[P2PCF] Step completed, next step in:',
+        this.nextStepTime - now,
+        'ms'
+      );
     } catch (e) {
-      console.error(e);
+      console.error('[P2PCF] Error in _step:', e);
       this.nextStepTime = now + this.slowPollingRateMs;
     } finally {
       this.isSending = false;
@@ -776,6 +979,14 @@ export default class P2PCF extends EventEmitter {
     const [localSessionId, , localSymmetric] = localPeerData;
     const now = Date.now();
 
+    console.log('[P2PCF] Handling worker response:', {
+      localSessionId,
+      localSymmetric,
+      remotePeerCount: remotePeerDatas.length,
+      remotePackageCount: remotePackages.length,
+      currentPeers: Array.from(this.peers.keys()),
+    });
+
     for (const remotePeerData of remotePeerDatas) {
       const [
         remoteSessionId,
@@ -787,10 +998,19 @@ export default class P2PCF extends EventEmitter {
         remoteDataTimestamp,
       ] = remotePeerData;
 
+      console.log('[P2PCF] Processing remote peer:', {
+        remoteSessionId,
+        remoteClientId,
+        remoteSymmetric,
+        remoteDataTimestamp,
+        isPeerA: null, // Will be determined below
+      });
+
       if (
         this.lastProcessedReceivedDataTimestamps.get(remoteSessionId) ===
         remoteDataTimestamp
       ) {
+        console.log('[P2PCF] Skipping peer - already processed this timestamp');
         continue;
       }
 
@@ -800,6 +1020,8 @@ export default class P2PCF extends EventEmitter {
             ? localSessionId > remoteSessionId
             : localStartedAtTimestamp > remoteStartedAtTimestamp
           : localSymmetric;
+
+      console.log('[P2PCF] Peer role determined - isPeerA:', isPeerA);
 
       const iceServers =
         localSymmetric || remoteSymmetric
@@ -813,15 +1035,25 @@ export default class P2PCF extends EventEmitter {
       const peerOptions = { ...this.peerOptions, config: { iceServers } };
 
       if (isPeerA) {
-        if (this.peers.has(remoteSessionId)) continue;
-        if (!remotePackage) continue;
+        console.log('[P2PCF] Acting as Peer A for:', remoteSessionId);
+        if (this.peers.has(remoteSessionId)) {
+          console.log('[P2PCF] Peer already exists, skipping');
+          continue;
+        }
+        if (!remotePackage) {
+          console.log('[P2PCF] No remote package, skipping');
+          continue;
+        }
 
         this.lastProcessedReceivedDataTimestamps.set(
           remoteSessionId,
           remoteDataTimestamp
         );
 
-        if (this.packageReceivedFromPeers.has(remoteSessionId)) continue;
+        if (this.packageReceivedFromPeers.has(remoteSessionId)) {
+          console.log('[P2PCF] Package already received from peer, skipping');
+          continue;
+        }
         this.packageReceivedFromPeers.add(remoteSessionId);
 
         const [
@@ -835,6 +1067,13 @@ export default class P2PCF extends EventEmitter {
           ,
           remoteCandidates,
         ] = remotePackage;
+
+        console.log('[P2PCF] Creating Peer A connection:', {
+          remoteSessionId,
+          remoteCandidatesCount: remoteCandidates.length,
+          hasRemoteIceUFrag: !!remoteIceUFrag,
+          hasLocalIceUFrag: !!localIceUFrag,
+        });
 
         const peer = new SimplePeerImplementation({
           ...peerOptions,
@@ -862,6 +1101,7 @@ export default class P2PCF extends EventEmitter {
         this._wireUpCommonPeerEvents(peer);
 
         this.peers.set(peer.id!, peer);
+        console.log('[P2PCF] Peer A created and added to peers map:', peer.id);
 
         const pkg = [
           remoteSessionId,
@@ -884,6 +1124,7 @@ export default class P2PCF extends EventEmitter {
           if (localPackages.includes(pkg)) return;
           if (pkgCandidates.length === 0) return;
           localPackages.push(pkg);
+          console.log('[P2PCF] Peer A ICE gathering finished, package added');
         };
 
         const initialCandidateSignalling = (e: any) => {
@@ -904,7 +1145,7 @@ export default class P2PCF extends EventEmitter {
         setTimeout(() => {
           if (peer._iceComplete || peer.connected) return;
 
-          console.warn("Peer A didn't connect in time", peer.id);
+          console.warn('[P2PCF] Peer A connection timeout:', peer.id);
           peer._iceComplete = true;
           this._removePeer(peer, true);
           this._updateConnectedSessions();
@@ -917,12 +1158,14 @@ export default class P2PCF extends EventEmitter {
           remoteDtlsFingerprintBase64Peer
         );
 
+        console.log('[P2PCF] Peer A signaling remote SDP and candidates');
         for (const candidate of remoteCandidates) {
           peer.signal({ candidate: { candidate, sdpMLineIndex: 0 } });
         }
 
         peer.signal({ type: 'offer', sdp: remoteSdp });
       } else {
+        console.log('[P2PCF] Acting as Peer B for:', remoteSessionId);
         if (!this.peers.has(remoteSessionId)) {
           this.lastProcessedReceivedDataTimestamps.set(
             remoteSessionId,
@@ -942,6 +1185,10 @@ export default class P2PCF extends EventEmitter {
           this._wireUpCommonPeerEvents(peer);
 
           this.peers.set(peer.id!, peer);
+          console.log(
+            '[P2PCF] Peer B created and added to peers map:',
+            peer.id
+          );
 
           const pkg = [
             remoteSessionId,
@@ -966,6 +1213,7 @@ export default class P2PCF extends EventEmitter {
             if (pkgCandidates.length === 0) return;
 
             localPackages.push(pkg);
+            console.log('[P2PCF] Peer B ICE gathering finished, package added');
           };
 
           const initialCandidateSignalling = (e: any) => {
@@ -985,7 +1233,7 @@ export default class P2PCF extends EventEmitter {
           setTimeout(() => {
             if (peer._iceComplete || peer.connected) return;
 
-            console.warn('Peer B failed to connect in time', peer.id);
+            console.warn('[P2PCF] Peer B connection timeout:', peer.id);
             peer._iceComplete = true;
             this._removePeer(peer, true);
             this._updateConnectedSessions();
@@ -1022,18 +1270,30 @@ export default class P2PCF extends EventEmitter {
               } 30000 typ srflx\r\n`;
             }
 
+            // Store the remote SDP to be set later when we receive candidates from Peer A
             peer._pendingRemoteSdp = remoteSdp;
-            peer.signal({ type: 'answer', sdp: remoteSdp });
+            console.log(
+              '[P2PCF] Peer B created answer SDP, waiting for candidates'
+            );
           };
 
           peer.once('signal', enqueuePackageFromOffer);
         }
 
-        if (!remotePackage) continue;
+        if (!remotePackage) {
+          console.log('[P2PCF] No remote package for Peer B, continuing');
+          continue;
+        }
 
         const [, , , , , , , , remoteCandidates] = remotePackage;
-        if (this.packageReceivedFromPeers.has(remoteSessionId)) continue;
-        if (!this.peers.has(remoteSessionId)) continue;
+        if (this.packageReceivedFromPeers.has(remoteSessionId)) {
+          console.log('[P2PCF] Peer B package already received, skipping');
+          continue;
+        }
+        if (!this.peers.has(remoteSessionId)) {
+          console.log('[P2PCF] Peer B not found in peers map, skipping');
+          continue;
+        }
 
         const peer = this.peers.get(remoteSessionId)!;
 
@@ -1042,6 +1302,7 @@ export default class P2PCF extends EventEmitter {
           peer._pendingRemoteSdp &&
           remoteCandidates.length > 0
         ) {
+          console.log('[P2PCF] Peer B processing remote candidates');
           if (!peer.connected) {
             for (const candidate of remoteCandidates) {
               peer.signal({ candidate: { candidate, sdpMLineIndex: 0 } });
@@ -1051,6 +1312,7 @@ export default class P2PCF extends EventEmitter {
           peer.signal({ type: 'answer', sdp: peer._pendingRemoteSdp });
           delete peer._pendingRemoteSdp;
           this.packageReceivedFromPeers.add(remoteSessionId);
+          console.log('[P2PCF] Peer B remote SDP signaled');
         }
 
         if (
@@ -1058,6 +1320,7 @@ export default class P2PCF extends EventEmitter {
           remoteCandidates.length > 0 &&
           !this.packageReceivedFromPeers.has(remoteSessionId)
         ) {
+          console.log('[P2PCF] Peer B adding additional candidates');
           if (!peer.connected) {
             for (const candidate of remoteCandidates) {
               peer.signal({ candidate: { candidate, sdpMLineIndex: 0 } });
@@ -1075,14 +1338,22 @@ export default class P2PCF extends EventEmitter {
       if (remoteSessionIds.includes(sessionId)) continue;
 
       if (!peer.connected) {
-        console.warn('Removing unconnected peer not in peer list', peer.id);
+        console.warn(
+          '[P2PCF] Removing unconnected peer not in peer list:',
+          peer.id
+        );
         this._removePeer(peer, true);
       }
     }
   }
 
   private _removePeer(peer: SimplePeer, destroy = false) {
-    if (!this.peers.has(peer.id!)) return;
+    if (!this.peers.has(peer.id!)) {
+      console.log('[P2PCF] Attempted to remove non-existent peer:', peer.id);
+      return;
+    }
+
+    console.log('[P2PCF] Removing peer:', peer.id, 'destroy:', destroy);
 
     removeInPlace(this.packages, (pkg) => pkg[0] === peer.id);
     this.packageReceivedFromPeers.delete(peer.id!);
@@ -1097,6 +1368,7 @@ export default class P2PCF extends EventEmitter {
   }
 
   private _updateConnectedSessions() {
+    const previousCount = this.connectedSessions.length;
     this.connectedSessions.length = 0;
 
     for (const [sessionId, peer] of this.peers) {
@@ -1104,11 +1376,20 @@ export default class P2PCF extends EventEmitter {
         this.connectedSessions.push(sessionId);
       }
     }
+
+    if (previousCount !== this.connectedSessions.length) {
+      console.log('[P2PCF] Connected sessions updated:', {
+        count: this.connectedSessions.length,
+        sessions: this.connectedSessions,
+      });
+      this.emit('connectedSessionsChanged', this.connectedSessions);
+    }
   }
 
   private async _getNetworkSettings(): Promise<
     [boolean, boolean, Set<string>, string]
   > {
+    console.log('[P2PCF] Detecting network settings...');
     let dtlsFingerprint = '';
     const candidates: (number | string | null)[][] = [];
     const reflexiveIps = new Set<string>();
@@ -1119,22 +1400,49 @@ export default class P2PCF extends EventEmitter {
     pc.createDataChannel('x');
 
     const p = new Promise<void>((resolve) => {
-      setTimeout(() => resolve(), 5000);
+      setTimeout(() => {
+        console.log('[P2PCF] Network detection timeout reached');
+        resolve();
+      }, 5000);
 
       (pc as any).onicecandidate = (e: any) => {
-        if (!e.candidate) return resolve();
+        if (!e.candidate) {
+          console.log('[P2PCF] ICE candidate gathering complete');
+          return resolve();
+        }
 
         if (e.candidate.candidate) {
-          candidates.push(parseCandidate(e.candidate.candidate));
+          const parsed = parseCandidate(e.candidate.candidate);
+          candidates.push(parsed);
+          console.log('[P2PCF] ICE candidate received:', {
+            type: parsed[0],
+            ip: parsed[2],
+            port: parsed[3],
+            relatedPort: parsed[5],
+          });
         }
       };
     });
 
     const offer = await pc.createOffer();
 
+    console.log('[P2PCF] Full SDP offer:', offer.sdp);
+
     for (const l of offer.sdp!.split('\n')) {
       if (l.indexOf('a=fingerprint') === -1) continue;
-      dtlsFingerprint = l.split(' ')[1]!.trim();
+
+      console.log('[P2PCF] Found fingerprint line:', l);
+
+      // Line format: "a=fingerprint:sha-256 AA:BB:CC:..."
+      // Split by space to get the fingerprint part
+      const parts = l.split(' ');
+      console.log('[P2PCF] Split parts:', parts);
+
+      if (parts.length >= 2) {
+        // The fingerprint should be in the second part (index 1)
+        dtlsFingerprint = parts[1]!.trim();
+      }
+      console.log('[P2PCF] Extracted DTLS fingerprint:', dtlsFingerprint);
     }
 
     await pc.setLocalDescription(offer);
@@ -1167,6 +1475,14 @@ export default class P2PCF extends EventEmitter {
       }
     }
 
+    console.log('[P2PCF] Network settings detected:', {
+      udpEnabled,
+      isSymmetric,
+      reflexiveIps: Array.from(reflexiveIps),
+      dtlsFingerprint: dtlsFingerprint ? 'present' : 'missing',
+      candidateCount: candidates.length,
+    });
+
     return [udpEnabled, isSymmetric, reflexiveIps, dtlsFingerprint];
   }
 
@@ -1177,6 +1493,12 @@ export default class P2PCF extends EventEmitter {
       const totalLength = new Uint32Array(data, 0, 3)[2]!;
       target = new Uint8Array(totalLength);
       this.msgChunks.set(messageId, target);
+      console.log(
+        '[P2PCF] Created new chunk buffer for messageId:',
+        messageId,
+        'totalLength:',
+        totalLength
+      );
     } else {
       target = this.msgChunks.get(messageId)!;
     }
@@ -1193,11 +1515,25 @@ export default class P2PCF extends EventEmitter {
       chunkId * CHUNK_MAX_LENGTH_BYTES
     );
 
+    console.log('[P2PCF] Processed chunk:', {
+      messageId,
+      chunkId,
+      offset: offsetToSet,
+      bytes: numBytesToSet,
+      progress: `${Math.min(100, Math.round((((chunkId + 1) * CHUNK_MAX_LENGTH_BYTES) / target.byteLength) * 100))}%`,
+    });
+
     return target.buffer;
   }
 
   private _checkForSignalOrEmitMessage(peer: SimplePeer, msg: ArrayBuffer) {
     if (msg.byteLength < SIGNAL_MESSAGE_HEADER_WORDS.length * 2) {
+      console.log(
+        '[P2PCF] Emitting regular message from peer:',
+        peer.id,
+        'size:',
+        msg.byteLength
+      );
       this.emit('msg', peer, msg);
       return;
     }
@@ -1219,11 +1555,18 @@ export default class P2PCF extends EventEmitter {
       payload = payload.substring(0, payload.length - 1);
     }
 
+    console.log('[P2PCF] Processing signaling message from peer:', peer.id);
     peer.signal(JSON.parse(payload));
   }
 
   private _wireUpCommonPeerEvents(peer: SimplePeer) {
     peer.on('connect', () => {
+      console.log(
+        '[P2PCF] Peer connected:',
+        peer.id,
+        'client_id:',
+        peer.client_id
+      );
       this.emit('peerconnect', peer);
 
       removeInPlace(this.packages, (pkg) => pkg[0] === peer.id);
@@ -1246,11 +1589,15 @@ export default class P2PCF extends EventEmitter {
           const last = u16[3] !== 0;
           const msg = this._chunkHandler(data, messageId, chunkId);
           if (last) {
+            console.log(
+              '[P2PCF] Last chunk received for messageId:',
+              messageId
+            );
             this._checkForSignalOrEmitMessage(peer, msg as ArrayBuffer);
             this.msgChunks.delete(messageId);
           }
         } catch (e) {
-          console.error(e);
+          console.error('[P2PCF] Error processing chunk:', e);
         }
       } else {
         this._checkForSignalOrEmitMessage(peer, data);
@@ -1258,15 +1605,22 @@ export default class P2PCF extends EventEmitter {
     });
 
     peer.on('error', (err: Error) => {
-      console.warn(err);
+      console.warn('[P2PCF] Peer error:', peer.id, err);
     });
 
     peer.on('close', () => {
+      console.log('[P2PCF] Peer closed:', peer.id);
       this._removePeer(peer);
       this._updateConnectedSessions();
     });
 
     peer.on('signal', (signalData: any) => {
+      console.log(
+        '[P2PCF] Peer signaling data:',
+        peer.id,
+        'type:',
+        signalData.type || 'candidate'
+      );
       const payloadBytes = textToArr(JSON.stringify(signalData));
 
       let len =
