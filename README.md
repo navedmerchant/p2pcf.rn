@@ -54,6 +54,25 @@ Update your `android/app/src/main/AndroidManifest.xml`:
 ```typescript
 import P2PCF, { type Peer } from 'p2pcf.rn';
 
+// Helper functions for text encoding/decoding
+const textToArrayBuffer = (text: string): ArrayBuffer => {
+  const utf8 = unescape(encodeURIComponent(text));
+  const result = new Uint8Array(utf8.length);
+  for (let i = 0; i < utf8.length; i++) {
+    result[i] = utf8.charCodeAt(i);
+  }
+  return result.buffer;
+};
+
+const arrayBufferToText = (buffer: ArrayBuffer): string => {
+  const arr = new Uint8Array(buffer);
+  let result = '';
+  for (let i = 0; i < arr.length; i++) {
+    result += String.fromCharCode(arr[i]!);
+  }
+  return decodeURIComponent(escape(result));
+};
+
 // Create a P2PCF instance
 const p2pcf = new P2PCF('my-client-id', 'my-room-id', {
   workerUrl: 'https://p2pcf.minddrop.workers.dev',
@@ -66,8 +85,7 @@ p2pcf.on('peerconnect', (peer: Peer) => {
 
 // Listen for messages
 p2pcf.on('msg', (peer: Peer, data: ArrayBuffer) => {
-  const decoder = new TextDecoder();
-  const message = decoder.decode(data);
+  const message = arrayBufferToText(data);
   console.log('Received message:', message);
 });
 
@@ -80,14 +98,13 @@ p2pcf.on('peerclose', (peer: Peer) => {
 await p2pcf.start();
 
 // Send a message to all peers
-const encoder = new TextEncoder();
-const data = encoder.encode('Hello, peers!');
-p2pcf.broadcast(data.buffer);
+const data = textToArrayBuffer('Hello, peers!');
+p2pcf.broadcast(data);
 
 // Send to a specific peer
 const peer = Array.from(p2pcf.peers.values())[0];
 if (peer) {
-  p2pcf.send(peer, data.buffer);
+  p2pcf.send(peer, data);
 }
 
 // Clean up when done
@@ -131,9 +148,8 @@ function useP2PCF(clientId: string, roomId: string) {
 
   const sendMessage = (message: string) => {
     if (p2pcfRef.current) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(message);
-      p2pcfRef.current.broadcast(data.buffer);
+      const data = textToArrayBuffer(message);
+      p2pcfRef.current.broadcast(data);
     }
   };
 
@@ -208,8 +224,7 @@ Emitted when a message is received from a peer.
 
 ```typescript
 p2pcf.on('msg', (peer: Peer, data: ArrayBuffer) => {
-  const decoder = new TextDecoder();
-  const message = decoder.decode(data);
+  const message = arrayBufferToText(data);
   console.log('Received:', message);
 });
 ```

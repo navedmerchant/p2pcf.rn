@@ -11,6 +11,25 @@ import {
 } from 'react-native';
 import P2PCF, { type Peer } from 'p2pcf.rn';
 
+// Helper functions for text encoding/decoding in React Native
+const textToArrayBuffer = (text: string): ArrayBuffer => {
+  const utf8 = unescape(encodeURIComponent(text));
+  const result = new Uint8Array(utf8.length);
+  for (let i = 0; i < utf8.length; i++) {
+    result[i] = utf8.charCodeAt(i);
+  }
+  return result.buffer;
+};
+
+const arrayBufferToText = (buffer: ArrayBuffer): string => {
+  const arr = new Uint8Array(buffer);
+  let result = '';
+  for (let i = 0; i < arr.length; i++) {
+    result += String.fromCharCode(arr[i]!);
+  }
+  return decodeURIComponent(escape(result));
+};
+
 export default function App() {
   const [clientId, setClientId] = useState('');
   const [roomId, setRoomId] = useState('');
@@ -35,9 +54,7 @@ export default function App() {
     }
 
     try {
-      const p2pcf = new P2PCF(clientId.trim(), roomId.trim(), {
-        workerUrl: 'https://p2pcf.minddrop.workers.dev',
-      });
+      const p2pcf = new P2PCF(clientId.trim(), roomId.trim());
 
       p2pcf.on('peerconnect', (peer: Peer) => {
         console.log('Peer connected:', peer.id);
@@ -52,8 +69,7 @@ export default function App() {
       });
 
       p2pcf.on('msg', (peer: Peer, data: ArrayBuffer) => {
-        const decoder = new TextDecoder();
-        const message = decoder.decode(data);
+        const message = arrayBufferToText(data);
         addMessage(`${peer.client_id || peer.id}: ${message}`);
       });
 
@@ -86,9 +102,8 @@ export default function App() {
     if (!messageInput.trim()) return;
 
     if (p2pcfRef.current && peers.length > 0) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(messageInput);
-      p2pcfRef.current.broadcast(data.buffer as ArrayBuffer);
+      const data = textToArrayBuffer(messageInput);
+      p2pcfRef.current.broadcast(data);
       addMessage(`You: ${messageInput}`);
       setMessageInput('');
     } else {

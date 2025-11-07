@@ -89,7 +89,8 @@
     "base64-arraybuffer": "^1.0.2",
     "convert-hex": "^0.1.0",
     "events": "^3.3.0",
-    "react-native-webrtc": "^124.0.7"
+    "react-native-webrtc": "^124.0.7",
+    "text-encoding": "^0.7.0"
   },
   "peerDependencies": {
     "react": "*",

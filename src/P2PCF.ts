@@ -88,11 +88,23 @@ const randomstring = (len: number): string => {
   return btoa(str).replace(/[=]/g, '');
 };
 
-const textDecoder = new TextDecoder('utf-8');
-const textEncoder = new TextEncoder();
+// Custom TextEncoder/TextDecoder implementation for React Native
+const arrToText = (arr: Uint8Array): string => {
+  let result = '';
+  for (let i = 0; i < arr.length; i++) {
+    result += String.fromCharCode(arr[i]!);
+  }
+  return decodeURIComponent(escape(result));
+};
 
-const arrToText = (arr: Uint8Array): string => textDecoder.decode(arr);
-const textToArr = (text: string): Uint8Array => textEncoder.encode(text);
+const textToArr = (text: string): Uint8Array => {
+  const utf8 = unescape(encodeURIComponent(text));
+  const result = new Uint8Array(utf8.length);
+  for (let i = 0; i < utf8.length; i++) {
+    result[i] = utf8.charCodeAt(i);
+  }
+  return result;
+};
 
 const removeInPlace = <T>(
   a: T[],

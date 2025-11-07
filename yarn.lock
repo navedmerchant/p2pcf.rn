@@ -9802,6 +9802,7 @@ __metadata:
     react-native: 0.81.1
     react-native-builder-bob: ^0.40.14
     react-native-monorepo-config: ^0.1.9
+    react-native-webrtc: 124.0.7
   languageName: unknown
   linkType: soft
 
@@ -9836,6 +9837,7 @@ __metadata:
     react-native-builder-bob: ^0.40.14
     react-native-webrtc: ^124.0.7
     release-it: ^19.0.4
+    text-encoding: ^0.7.0
     turbo: ^2.5.6
     typescript: ^5.9.2
   peerDependencies:
@@ -10334,7 +10336,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webrtc@npm:^124.0.7":
+"react-native-webrtc@npm:124.0.7, react-native-webrtc@npm:^124.0.7":
   version: 124.0.7
   resolution: "react-native-webrtc@npm:124.0.7"
   dependencies:
@@ -11481,6 +11483,13 @@ __metadata:
     glob: ^7.1.4
     minimatch: ^3.0.4
   checksum: 3b34a3d77165a2cb82b34014b3aba93b1c4637a5011807557dc2f3da826c59975a5ccad765721c4648b39817e3472789f9b0fa98fc854c5c1c7a1e632aacdc28
+  languageName: node
+  linkType: hard
+
+"text-encoding@npm:^0.7.0":
+  version: 0.7.0
+  resolution: "text-encoding@npm:0.7.0"
+  checksum: b6109a843fb1b8748b32e1ecd6df74d370f46c13ac136bcb6ca15db70209bb0b8ec1f296ebb4b0dd9961150e205dcc044b89f8cf7657f6faef78c7569a2a81bc
   languageName: node
   linkType: hard
 
