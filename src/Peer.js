@@ -123,19 +123,12 @@ class Peer extends EventEmitter {
       opts.wrtc && typeof opts.wrtc === 'object' ? opts.wrtc : getBrowserRTC();
 
     if (!this._wrtc) {
-      if (typeof window === 'undefined') {
-        throw errCode(
-          new Error(
-            'No WebRTC support: Specify `opts.wrtc` option in this environment'
-          ),
-          'ERR_WEBRTC_SUPPORT'
-        );
-      } else {
-        throw errCode(
-          new Error('No WebRTC support: Not a supported browser'),
-          'ERR_WEBRTC_SUPPORT'
-        );
-      }
+      throw errCode(
+        new Error(
+          'No WebRTC support: Specify `opts.wrtc` option for this environment'
+        ),
+        'ERR_WEBRTC_SUPPORT'
+      );
     }
 
     this._pcReady = false;

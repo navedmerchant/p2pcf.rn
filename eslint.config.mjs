@@ -18,6 +18,13 @@ export default defineConfig([
   {
     extends: fixupConfigRules(compat.extends('@react-native', 'prettier')),
     plugins: { prettier },
+    languageOptions: {
+      globals: {
+        // React Native / JS runtime globals used in src/p2pcf.js
+        btoa: 'readonly',
+        atob: 'readonly',
+      },
+    },
     rules: {
       'react/react-in-jsx-scope': 'off',
       'prettier/prettier': 'error',
