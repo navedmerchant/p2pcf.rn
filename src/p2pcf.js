@@ -4,8 +4,6 @@
  * Licensed under MIT
  */
 
-/* global crypto */
-
 import { RTCPeerConnection } from 'react-native-webrtc';
 import { EventEmitter } from 'events';
 import Peer from './Peer';
@@ -129,8 +127,15 @@ const DEFAULT_TURN_ICE = [
   },
 ];
 
+const getRandomValues = (array) => {
+  for (let i = 0; i < array.length; i++) {
+    array[i] = Math.floor(Math.random() * 256);
+  }
+  return array;
+};
+
 const randomstring = (len) => {
-  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  const bytes = getRandomValues(new Uint8Array(len));
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]);
@@ -395,11 +400,31 @@ export default class P2PCF extends EventEmitter {
   }
 
   async _init() {
-    if (this.dtlsCert === null) {
-      this.dtlsCert = await this.wrtc.RTCPeerConnection.generateCertificate({
-        name: 'ECDSA',
-        namedCurve: 'P-256',
-      });
+    // In browsers, RTCPeerConnection.generateCertificate may be available and lets us
+    // supply a specific certificate (and fingerprint) for consistency.
+    // In react-native-webrtc this is typically NOT implemented; trying to call it
+    // would throw. In that case, fall back to the platform's default DTLS cert.
+    if (
+      this.dtlsCert === null &&
+      this.wrtc &&
+      this.wrtc.RTCPeerConnection &&
+      typeof this.wrtc.RTCPeerConnection.generateCertificate === 'function'
+    ) {
+      try {
+        this.dtlsCert = await this.wrtc.RTCPeerConnection.generateCertificate({
+          name: 'ECDSA',
+          namedCurve: 'P-256',
+        });
+      } catch (e) {
+        // If certificate generation fails (or is unsupported), continue without a custom cert.
+        // The subsequent _getNetworkSettings() call will derive the DTLS fingerprint from
+        // the auto-generated certificate used by RTCPeerConnection.
+        console.warn(
+          'P2PCF: generateCertificate not available or failed, using default DTLS certificate',
+          e
+        );
+        this.dtlsCert = null;
+      }
     }
   }
 

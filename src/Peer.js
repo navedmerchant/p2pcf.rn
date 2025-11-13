@@ -1,5 +1,4 @@
 /*! simple-peer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
-const debug = (...args) => console.log('[simple-peer]', ...args);
 const {
   RTCPeerConnection,
   RTCSessionDescription,
@@ -84,7 +83,7 @@ class Peer extends EventEmitter {
     super(opts);
 
     this.id = opts.id || randomstring({ length: 20 });
-    this._debug('new peer %o', opts);
+    console.log('[' + this.id + ']', 'new peer %o', opts);
 
     this.channelName = opts.initiator
       ? opts.channelName || randomstring({ length: 20 })
@@ -218,7 +217,7 @@ class Peer extends EventEmitter {
       this._onTrack(event);
     };
 
-    this._debug('initial negotiation');
+    console.log('[' + this.id + ']', 'initial negotiation');
     this._needsNegotiation();
 
     this._onFinishBound = () => {
@@ -259,14 +258,14 @@ class Peer extends EventEmitter {
         data = {};
       }
     }
-    this._debug('signal()');
+    console.log('[' + this.id + ']', 'signal()');
 
     if (data.renegotiate && this.initiator) {
-      this._debug('got request to renegotiate');
+      console.log('[' + this.id + ']', 'got request to renegotiate');
       this._needsNegotiation();
     }
     if (data.transceiverRequest && this.initiator) {
-      this._debug('got request for transceiver');
+      console.log('[' + this.id + ']', 'got request for transceiver');
       this.addTransceiver(
         data.transceiverRequest.kind,
         data.transceiverRequest.init
@@ -351,7 +350,7 @@ class Peer extends EventEmitter {
         new Error('cannot addTransceiver after peer is destroyed'),
         'ERR_DESTROYED'
       );
-    this._debug('addTransceiver()');
+    console.log('[' + this.id + ']', 'addTransceiver()');
 
     if (this.initiator) {
       try {
@@ -380,7 +379,7 @@ class Peer extends EventEmitter {
         new Error('cannot addStream after peer is destroyed'),
         'ERR_DESTROYED'
       );
-    this._debug('addStream()');
+    console.log('[' + this.id + ']', 'addStream()');
 
     stream.getTracks().forEach((track) => {
       this.addTrack(track, stream);
@@ -399,7 +398,7 @@ class Peer extends EventEmitter {
         new Error('cannot addTrack after peer is destroyed'),
         'ERR_DESTROYED'
       );
-    this._debug('addTrack()');
+    console.log('[' + this.id + ']', 'addTrack()');
 
     const submap = this._senderMap.get(track) || new Map(); // nested Maps map [track, stream] to sender
     let sender = submap.get(stream);
@@ -436,7 +435,7 @@ class Peer extends EventEmitter {
         new Error('cannot replaceTrack after peer is destroyed'),
         'ERR_DESTROYED'
       );
-    this._debug('replaceTrack()');
+    console.log('[' + this.id + ']', 'replaceTrack()');
 
     const submap = this._senderMap.get(oldTrack);
     const sender = submap ? submap.get(stream) : null;
@@ -472,7 +471,7 @@ class Peer extends EventEmitter {
         new Error('cannot removeTrack after peer is destroyed'),
         'ERR_DESTROYED'
       );
-    this._debug('removeSender()');
+    console.log('[' + this.id + ']', 'removeSender()');
 
     const submap = this._senderMap.get(track);
     const sender = submap ? submap.get(stream) : null;
@@ -506,7 +505,7 @@ class Peer extends EventEmitter {
         new Error('cannot removeStream after peer is destroyed'),
         'ERR_DESTROYED'
       );
-    this._debug('removeSenders()');
+    console.log('[' + this.id + ']', 'removeSenders()');
 
     stream.getTracks().forEach((track) => {
       this.removeTrack(track, stream);
@@ -514,16 +513,19 @@ class Peer extends EventEmitter {
   }
 
   _needsNegotiation() {
-    this._debug('_needsNegotiation');
+    console.log('[' + this.id + ']', '_needsNegotiation');
     if (this._batchedNegotiation) return; // batch synchronous renegotiations
     this._batchedNegotiation = true;
     queueMicrotask(() => {
       this._batchedNegotiation = false;
       if (this.initiator || !this._firstNegotiation) {
-        this._debug('starting batched negotiation');
+        console.log('[' + this.id + ']', 'starting batched negotiation');
         this.negotiate();
       } else {
-        this._debug('non-initiator initial negotiation request discarded');
+        console.log(
+          '[' + this.id + ']',
+          'non-initiator initial negotiation request discarded'
+        );
       }
       this._firstNegotiation = false;
     });
@@ -540,9 +542,9 @@ class Peer extends EventEmitter {
     if (this.initiator) {
       if (this._isNegotiating) {
         this._queuedNegotiation = true;
-        this._debug('already negotiating, queueing');
+        console.log('[' + this.id + ']', 'already negotiating, queueing');
       } else {
-        this._debug('start negotiation');
+        console.log('[' + this.id + ']', 'start negotiation');
         setTimeout(() => {
           // HACK: Chrome crashes if we immediately call createOffer
           this._createOffer();
@@ -551,9 +553,9 @@ class Peer extends EventEmitter {
     } else {
       if (this._isNegotiating) {
         this._queuedNegotiation = true;
-        this._debug('already negotiating, queueing');
+        console.log('[' + this.id + ']', 'already negotiating, queueing');
       } else {
-        this._debug('requesting negotiation from initiator');
+        console.log('[' + this.id + ']', 'requesting negotiation from initiator');
         this.emit('signal', {
           // request initiator to renegotiate
           type: 'renegotiate',
@@ -572,14 +574,22 @@ class Peer extends EventEmitter {
     if (this.destroyed || this.destroying) return;
     this.destroying = true;
 
-    this._debug('destroying (error: %s)', err && (err.message || err));
+    console.log(
+      '[' + this.id + ']',
+      'destroying (error: %s)',
+      err && (err.message || err)
+    );
 
     queueMicrotask(() => {
       // allow events concurrent with the call to _destroy() to fire (see #692)
       this.destroyed = true;
       this.destroying = false;
 
-      this._debug('destroy (error: %s)', err && (err.message || err));
+      console.log(
+        '[' + this.id + ']',
+        'destroy (error: %s)',
+        err && (err.message || err)
+      );
 
       this._connected = false;
       this._pcReady = false;
@@ -709,7 +719,8 @@ class Peer extends EventEmitter {
         return this.destroy(errCode(err, 'ERR_DATA_CHANNEL'));
       }
       if (this._channel.bufferedAmount > MAX_BUFFERED_AMOUNT) {
-        this._debug(
+        console.log(
+          '[' + this.id + ']',
           'start backpressure: bufferedAmount %d',
           this._channel.bufferedAmount
         );
@@ -718,7 +729,7 @@ class Peer extends EventEmitter {
         cb(null);
       }
     } else {
-      this._debug('write before connect');
+      console.log('[' + this.id + ']', 'write before connect');
       this._chunk = chunk;
       this._cb = cb;
     }
@@ -745,11 +756,11 @@ class Peer extends EventEmitter {
   _startIceCompleteTimeout() {
     if (this.destroyed) return;
     if (this._iceCompleteTimer) return;
-    this._debug('started iceComplete timeout');
+    console.log('[' + this.id + ']', 'started iceComplete timeout');
     this._iceCompleteTimer = setTimeout(() => {
       if (!this._iceComplete) {
         this._iceComplete = true;
-        this._debug('iceComplete timeout completed');
+        console.log('[' + this.id + ']', 'iceComplete timeout completed');
         this.emit('iceTimeout');
         this.emit('_iceComplete');
       }
@@ -770,7 +781,7 @@ class Peer extends EventEmitter {
         const sendOffer = () => {
           if (this.destroyed) return;
           const signal = this._pc.localDescription || offer;
-          this._debug('signal');
+          console.log('[' + this.id + ']', 'signal');
           this.emit('signal', {
             type: signal.type,
             sdp: signal.sdp,
@@ -778,7 +789,7 @@ class Peer extends EventEmitter {
         };
 
         const onSuccess = () => {
-          this._debug('createOffer success');
+          console.log('[' + this.id + ']', 'createOffer success');
           if (this.destroyed) return;
           if (this.trickle || this._iceComplete) sendOffer();
           else this.once('_iceComplete', sendOffer); // wait for candidates
@@ -824,7 +835,7 @@ class Peer extends EventEmitter {
         const sendAnswer = () => {
           if (this.destroyed) return;
           const signal = this._pc.localDescription || answer;
-          this._debug('signal');
+          console.log('[' + this.id + ']', 'signal');
           this.emit('signal', {
             type: signal.type,
             sdp: signal.sdp,
@@ -863,7 +874,8 @@ class Peer extends EventEmitter {
     const iceConnectionState = this._pc.iceConnectionState;
     const iceGatheringState = this._pc.iceGatheringState;
 
-    this._debug(
+    console.log(
+      '[' + this.id + ']',
       'iceStateChange (connection: %s) (gathering: %s)',
       iceConnectionState,
       iceGatheringState
@@ -950,7 +962,8 @@ class Peer extends EventEmitter {
   }
 
   _maybeReady() {
-    this._debug(
+    console.log(
+      '[' + this.id + ']',
       'maybeReady pc %s channel %s',
       this._pcReady,
       this._channelReady
@@ -1052,7 +1065,8 @@ class Peer extends EventEmitter {
               : 'IPv4';
           }
 
-          this._debug(
+          console.log(
+            '[' + this.id + ']',
             'connect local: %s:%s remote: %s:%s',
             this.localAddress,
             this.localPort,
@@ -1102,7 +1116,7 @@ class Peer extends EventEmitter {
             return this.destroy(errCode(err, 'ERR_DATA_CHANNEL'));
           }
           this._chunk = null;
-          this._debug('sent chunk from "write before connect"');
+          console.log('[' + this.id + ']', 'sent chunk from "write before connect"');
 
           const cb = this._cb;
           this._cb = null;
@@ -1116,7 +1130,7 @@ class Peer extends EventEmitter {
           if (this._interval.unref) this._interval.unref();
         }
 
-        this._debug('connect');
+        console.log('[' + this.id + ']', 'connect');
         this.emit('connect');
       });
     };
@@ -1141,7 +1155,11 @@ class Peer extends EventEmitter {
       this._isNegotiating = false;
 
       // HACK: Firefox doesn't yet support removing tracks when signalingState !== 'stable'
-      this._debug('flushing sender queue', this._sendersAwaitingStable);
+      console.log(
+        '[' + this.id + ']',
+        'flushing sender queue',
+        this._sendersAwaitingStable
+      );
       this._sendersAwaitingStable.forEach((sender) => {
         this._pc.removeTrack(sender);
         this._queuedNegotiation = true;
@@ -1149,16 +1167,20 @@ class Peer extends EventEmitter {
       this._sendersAwaitingStable = [];
 
       if (this._queuedNegotiation) {
-        this._debug('flushing negotiation queue');
+        console.log('[' + this.id + ']', 'flushing negotiation queue');
         this._queuedNegotiation = false;
         this._needsNegotiation(); // negotiate again
       } else {
-        this._debug('negotiated');
+        console.log('[' + this.id + ']', 'negotiated');
         this.emit('negotiated');
       }
     }
 
-    this._debug('signalingStateChange %s', this._pc.signalingState);
+    console.log(
+      '[' + this.id + ']',
+      'signalingStateChange %s',
+      this._pc.signalingState
+    );
     this.emit('signalingStateChange', this._pc.signalingState);
   }
 
@@ -1190,7 +1212,8 @@ class Peer extends EventEmitter {
 
   _onChannelBufferedAmountLow() {
     if (this.destroyed || !this._cb) return;
-    this._debug(
+    console.log(
+      '[' + this.id + ']',
       'ending backpressure: bufferedAmount %d',
       this._channel.bufferedAmount
     );
@@ -1201,14 +1224,14 @@ class Peer extends EventEmitter {
 
   _onChannelOpen() {
     if (this._connected || this.destroyed) return;
-    this._debug('on channel open');
+    console.log('[' + this.id + ']', 'on channel open');
     this._channelReady = true;
     this._maybeReady();
   }
 
   _onChannelClose() {
     if (this.destroyed) return;
-    this._debug('on channel close');
+    console.log('[' + this.id + ']', 'on channel close');
     this.destroy();
   }
 
@@ -1217,7 +1240,7 @@ class Peer extends EventEmitter {
     const { track, receiver, streams } = event;
 
     streams.forEach((eventStream) => {
-      this._debug('on track');
+      console.log('[' + this.id + ']', 'on track');
       this.emit('track', track, eventStream, receiver);
 
       this._remoteTracks.push({ track, stream: eventStream });
@@ -1231,17 +1254,12 @@ class Peer extends EventEmitter {
 
       this._remoteStreams.push(eventStream);
       queueMicrotask(() => {
-        this._debug('on stream');
+        console.log('[' + this.id + ']', 'on stream');
         this.emit('stream', eventStream, receiver); // ensure all tracks have been added
       });
     });
   }
 
-  _debug() {
-    const args = [].slice.call(arguments);
-    args[0] = '[' + this.id + '] ' + args[0];
-    debug.apply(null, args);
-  }
 }
 
 Peer.WEBRTC_SUPPORT = !!getBrowserRTC();
