@@ -1,15 +1,33 @@
 # p2pcf.rn
 
-Peer-to-peer WebRTC connections for React Native using Cloudflare Workers as a signaling server. This is a React Native port of the original [p2pcf](https://github.com/gfodor/p2pcf) library.
+Peer-to-peer WebRTC connections for React Native using Cloudflare Workers as a signaling server. This is a React Native port of the original [p2pcf](https://github.com/gfodor/p2pcf) library, rewritten in TypeScript with a desktop-hub star topology architecture.
+
+## Architecture
+
+**Asymmetric Desktop-Hub Star Topology:**
+- **Desktop** acts as the hub, managing multiple connections to mobile clients
+- **Mobile** clients connect only to the desktop (not to each other)
+- Perfect for scenarios where a desktop app coordinates multiple mobile devices
+- Mobile devices initiate connections, desktop accepts them
+
+```
+       Mobile 1
+          |
+Mobile 2--Desktop--Mobile 3
+          |
+       Mobile 4
+```
 
 ## Features
 
-- 🚀 Simple peer-to-peer WebRTC connections in React Native
+- 🚀 Simple peer-to-peer WebRTC connections in React Native and web browsers
 - ☁️ Uses Cloudflare Workers for signaling (no server setup required)
 - 🔒 Secure connections with DTLS
-- 📱 Cross-platform (iOS & Android)
-- 🎯 TypeScript support
+- 📱 Cross-platform (iOS, Android, and Web)
+- 🎯 Full TypeScript support
 - 📦 Small bundle size
+- 🔌 Compatible with the original p2pcf worker.js
+- 🌐 Works in both React Native and web browser environments - copy/paste the same TypeScript code
 
 ## Installation
 
@@ -49,66 +67,85 @@ Update your `android/app/src/main/AndroidManifest.xml`:
 
 ## Usage
 
-### Basic Example
+### Desktop Example (Hub)
 
 ```typescript
-import P2PCF, { type Peer } from 'p2pcf.rn';
+import { P2PCF, type Peer } from 'p2pcf.rn';
 
-// Helper functions for text encoding/decoding
-const textToArrayBuffer = (text: string): ArrayBuffer => {
-  const utf8 = unescape(encodeURIComponent(text));
-  const result = new Uint8Array(utf8.length);
-  for (let i = 0; i < utf8.length; i++) {
-    result[i] = utf8.charCodeAt(i);
-  }
-  return result.buffer;
-};
-
-const arrayBufferToText = (buffer: ArrayBuffer): string => {
-  const arr = new Uint8Array(buffer);
-  let result = '';
-  for (let i = 0; i < arr.length; i++) {
-    result += String.fromCharCode(arr[i]!);
-  }
-  return decodeURIComponent(escape(result));
-};
-
-// Create a P2PCF instance
-const p2pcf = new P2PCF('my-client-id', 'my-room-id', {
+// Create desktop instance (hub that accepts connections)
+const desktop = new P2PCF('desktop-1', 'my-room', {
+  isDesktop: true,
   workerUrl: 'https://p2pcf.minddrop.workers.dev',
 });
 
-// Listen for peer connections
-p2pcf.on('peerconnect', (peer: Peer) => {
-  console.log('Peer connected:', peer.id);
+// Listen for mobile peer connections
+desktop.on('peerconnect', (peer: Peer) => {
+  console.log('Mobile connected:', peer.clientId);
 });
 
-// Listen for messages
-p2pcf.on('msg', (peer: Peer, data: ArrayBuffer) => {
-  const message = arrayBufferToText(data);
-  console.log('Received message:', message);
+// Listen for messages from mobile peers
+desktop.on('msg', (peer: Peer, data: ArrayBuffer) => {
+  const text = new TextDecoder().decode(data);
+  console.log(`Message from ${peer.clientId}:`, text);
 });
 
-// Listen for peer disconnections
-p2pcf.on('peerclose', (peer: Peer) => {
-  console.log('Peer disconnected:', peer.id);
-});
+// Start listening for connections
+await desktop.start();
 
-// Start the connection
-await p2pcf.start();
-
-// Send a message to all peers
-const data = textToArrayBuffer('Hello, peers!');
-p2pcf.broadcast(data);
-
-// Send to a specific peer
-const peer = Array.from(p2pcf.peers.values())[0];
-if (peer) {
-  p2pcf.send(peer, data);
+// Send to specific mobile peer
+const mobilePeer = desktop.getPeers()[0];
+if (mobilePeer) {
+  desktop.send(mobilePeer, 'Hello mobile!');
 }
 
-// Clean up when done
-p2pcf.destroy();
+// Broadcast to all connected mobile peers
+desktop.broadcast('Hello everyone!');
+```
+
+### Mobile Example (Client)
+
+```typescript
+import { P2PCF, type Peer } from 'p2pcf.rn';
+
+// Create mobile instance (connects to desktop)
+const mobile = new P2PCF('mobile-1', 'my-room', {
+  isDesktop: false,
+  workerUrl: 'https://p2pcf.minddrop.workers.dev',
+});
+
+// Listen for desktop connection
+mobile.on('peerconnect', (peer: Peer) => {
+  console.log('Connected to desktop:', peer.clientId);
+});
+
+// Listen for messages from desktop
+mobile.on('msg', (peer: Peer, data: ArrayBuffer) => {
+  const text = new TextDecoder().decode(data);
+  console.log('Message from desktop:', text);
+});
+
+// Start and connect to desktop
+await mobile.start();
+
+// Send to desktop (broadcast sends to desktop only in mobile mode)
+mobile.broadcast('Hello from mobile!');
+```
+
+### Web Browser Usage
+
+The same TypeScript code works in web browsers! Just copy/paste the P2PCF class:
+
+```typescript
+// In your web app (desktop hub)
+import { P2PCF } from './P2PCF'; // Copy P2PCF.ts to your web project
+
+const desktop = new P2PCF('web-desktop', 'my-room', {
+  isDesktop: true,
+  workerUrl: 'https://p2pcf.minddrop.workers.dev',
+});
+
+await desktop.start();
+// Now mobile React Native apps can connect to this web desktop!
 ```
 
 ### React Hook Example
@@ -162,28 +199,28 @@ function useP2PCF(clientId: string, roomId: string) {
 ### Constructor
 
 ```typescript
-new P2PCF(clientId: string, roomId: string, options?: P2PCFOptions)
+new P2PCF(clientId: string, roomId: string, options: P2PCFOptions)
 ```
 
 **Parameters:**
-- `clientId` (string, required): Unique identifier for this client (minimum 4 characters)
-- `roomId` (string, required): Room identifier to join (minimum 4 characters)
-- `options` (P2PCFOptions, optional): Configuration options
+- `clientId` (string, required): Unique identifier for this client
+- `roomId` (string, required): Room identifier to join
+- `options` (P2PCFOptions, required): Configuration options
 
 ### P2PCFOptions
 
 ```typescript
 interface P2PCFOptions {
-  workerUrl?: string; // Default: 'https://p2pcf.minddrop.workers.dev'
-  stunIceServers?: any[];
-  turnIceServers?: any[];
-  rtcPeerConnectionOptions?: any;
-  networkChangePollIntervalMs?: number; // Default: 15000
-  stateExpirationIntervalMs?: number; // Default: 120000
-  fastPollingRateMs?: number; // Default: 1500
-  slowPollingRateMs?: number; // Default: 5000
+  isDesktop: boolean;                // Required: true for hub, false for client
+  workerUrl?: string;                // Cloudflare Worker URL
+  rtcConfig?: RTCConfiguration;      // WebRTC config (STUN/TURN servers)
+  pollingInterval?: number;          // Worker polling interval in ms (default: 3000)
 }
 ```
+
+**Important:** You must specify `isDesktop`:
+- `isDesktop: true` - Acts as desktop hub, accepts connections from mobile clients
+- `isDesktop: false` - Acts as mobile client, initiates connection to desktop
 
 ### Methods
 
@@ -193,8 +230,13 @@ Start the P2PCF connection and begin discovering peers.
 #### `send(peer: Peer, data: ArrayBuffer | Uint8Array): void`
 Send data to a specific peer.
 
-#### `broadcast(data: ArrayBuffer | Uint8Array): void`
+#### `broadcast(data: ArrayBuffer | string): void`
 Send data to all connected peers.
+- **Desktop mode:** Broadcasts to all connected mobile peers
+- **Mobile mode:** Sends only to the connected desktop peer
+
+#### `getPeers(): Peer[]`
+Get list of all connected peers.
 
 #### `destroy(): void`
 Close all connections and clean up resources.
@@ -238,43 +280,102 @@ p2pcf.on('error', (error: Error) => {
 });
 ```
 
-### Properties
+### Peer Object
 
-#### `peers: Map<string, Peer>`
-Map of all connected peers, keyed by session ID.
-
-#### `connectedSessions: string[]`
-Array of session IDs for all connected peers.
-
-#### `clientId: string`
-The client ID for this instance.
-
-#### `roomId: string`
-The room ID for this instance.
+```typescript
+interface Peer {
+  id: string;         // Session ID
+  clientId: string;   // Client identifier
+  isDesktop: boolean; // Whether this peer is a desktop
+}
+```
 
 ## How It Works
 
-p2pcf.rn uses WebRTC for peer-to-peer data connections and Cloudflare Workers as a lightweight signaling server:
+p2pcf.rn uses an asymmetric desktop-hub star topology with WebRTC data connections:
 
-1. **Connection Setup**: When you call `start()`, the library connects to the Cloudflare Worker
-2. **Peer Discovery**: It polls the worker to discover other peers in the same room
-3. **WebRTC Negotiation**: Peers exchange ICE candidates and SDP offers/answers through the worker
-4. **Direct Connection**: Once negotiation completes, peers connect directly via WebRTC DataChannels
-5. **Data Transfer**: All subsequent data flows peer-to-peer without going through the worker
+1. **Desktop Hub Setup**: Desktop peer starts and registers with the Cloudflare Worker as `isDesktop: true`
+2. **Mobile Discovery**: Mobile peers poll the worker and discover the desktop peer
+3. **Connection Initiation**: Mobile peers create offers and send them to desktop via the worker
+4. **Desktop Acceptance**: Desktop receives offers and sends back answers, establishing WebRTC connections
+5. **Direct Communication**: Once connected, all data flows peer-to-peer via WebRTC DataChannels
+6. **Broadcasting**: Desktop can send to all mobile peers; mobile peers send only to desktop
+
+### Connection Flow
+
+```
+Mobile                Worker              Desktop
+  |                     |                    |
+  |-- Poll for peers -->|                    |
+  |                     |<-- Register -------|
+  |<-- Desktop found ---|                    |
+  |                     |                    |
+  |-- Send offer ------>|                    |
+  |                     |-- Deliver offer -->|
+  |                     |<-- Send answer ----|
+  |<-- Receive answer --|                    |
+  |                     |                    |
+  |<===== Direct WebRTC DataChannel =======>|
+```
 
 ## Signaling Server
 
-By default, the library uses a public Cloudflare Worker at `https://p2pcf.minddrop.workers.dev`. You can deploy your own worker for production use:
+This library is **100% compatible with the original p2pcf worker.js** from [gfodor/p2pcf](https://github.com/gfodor/p2pcf).
 
+You can:
+1. Use the default public worker: `https://p2pcf.minddrop.workers.dev`
+2. Deploy the original p2pcf worker.js using Wrangler
+3. Use any existing p2pcf worker deployment
+
+**To deploy your own:**
 1. Clone the [p2pcf repository](https://github.com/gfodor/p2pcf)
-2. Deploy the worker using Wrangler
+2. Deploy the worker using Wrangler: `wrangler deploy`
 3. Pass your worker URL in the options
+
+## Cross-Platform Usage
+
+**The TypeScript source code works in both React Native and web browsers!** You can copy/paste [src/P2PCF.ts](src/P2PCF.ts) into your web application and it will work out of the box.
+
+### Why it works everywhere:
+
+1. **Platform Detection**: Automatically detects React Native vs web browser environment
+2. **WebRTC Abstraction**: Uses `react-native-webrtc` in React Native, native WebRTC API in browsers
+3. **Standard APIs**: Built on EventEmitter and standard WebRTC APIs
+4. **No Platform-Specific Code**: Pure TypeScript with conditional imports
+
+### Example: Web Desktop + React Native Mobile
+
+```typescript
+// Web app (desktop.ts) - just copy P2PCF.ts to your project
+import { P2PCF } from './P2PCF';
+
+const desktop = new P2PCF('web-desktop', 'room-123', {
+  isDesktop: true,
+  workerUrl: 'https://p2pcf.minddrop.workers.dev',
+});
+
+await desktop.start();
+```
+
+```typescript
+// React Native app (App.tsx)
+import { P2PCF } from 'p2pcf.rn';
+
+const mobile = new P2PCF('mobile-1', 'room-123', {
+  isDesktop: false,
+  workerUrl: 'https://p2pcf.minddrop.workers.dev',
+});
+
+await mobile.start();
+// Mobile and web desktop are now connected!
+```
 
 ## Limitations
 
-- Maximum message size: ~16KB per message (automatically chunked for larger messages)
-- Room capacity: Depends on your signaling server configuration
-- NAT traversal: Some network configurations may require TURN servers
+- **Topology**: Mobile peers cannot communicate directly with each other (only through desktop)
+- **Message Size**: WebRTC DataChannel limits apply (~256KB per message, but check your browser)
+- **NAT Traversal**: Some network configurations may require TURN servers
+- **Room Capacity**: Depends on your signaling server configuration
 
 ## Example App
 
@@ -296,12 +397,35 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 MIT
 
+## Key Differences from Original p2pcf
+
+This library is a **TypeScript rewrite** of the original [p2pcf](https://github.com/gfodor/p2pcf) with several architectural changes:
+
+| Feature | Original p2pcf | p2pcf.rn |
+|---------|---------------|----------|
+| **Language** | JavaScript | **TypeScript** |
+| **Topology** | Symmetric mesh (all-to-all) | **Asymmetric star (desktop-hub)** |
+| **Platform** | Web browsers only | **React Native + Web** |
+| **Worker Compatibility** | Uses worker.js | **100% compatible with worker.js** |
+| **Connection Model** | All peers connect to each other | **Mobile initiates, desktop accepts** |
+| **API** | EventEmitter | **EventEmitter with TypeScript types** |
+
+**When to use p2pcf.rn:**
+- You need desktop-mobile coordination (desktop as hub)
+- You're building a React Native app
+- You want TypeScript support
+
+**When to use original p2pcf:**
+- You need peer-to-peer mesh networking (all peers equal)
+- You're building a web-only app
+- You prefer JavaScript
+
 ## Credits
 
 - Original p2pcf library by [Greg Fodor](https://github.com/gfodor)
-- React Native port by [Naved Merchant](https://github.com/navedmerchant)
+- TypeScript React Native port by [Naved Merchant](https://github.com/navedmerchant)
 
 ## Related Projects
 
-- [p2pcf](https://github.com/gfodor/p2pcf) - Original browser implementation
+- [p2pcf](https://github.com/gfodor/p2pcf) - Original JavaScript browser implementation (mesh topology)
 - [react-native-webrtc](https://github.com/react-native-webrtc/react-native-webrtc) - WebRTC for React Native
