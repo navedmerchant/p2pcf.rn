@@ -469,7 +469,7 @@ export class P2PCF extends EventEmitter {
    */
   private _processPeers(peerDataList: PeerData[]): void {
     if (this._isDesktop) {
-      // Desktop: just log discovered mobile peers (they will initiate)
+      // Desktop: store discovered mobile peers (they will initiate connections)
       for (const peerData of peerDataList) {
         const sessionId = peerData[0];
         const clientId = peerData[1];
@@ -478,6 +478,12 @@ export class P2PCF extends EventEmitter {
           console.log(
             `[P2PCF] Discovered mobile peer: ${clientId} (${sessionId})`
           );
+          // Store peer metadata so it's available when data channel opens
+          this._peers.set(sessionId, {
+            id: sessionId,
+            clientId,
+            isDesktop: false,
+          });
         }
       }
     } else {
@@ -676,15 +682,11 @@ export class P2PCF extends EventEmitter {
       pc.ondatachannel = (event: any) => {
         console.log(`[P2PCF] Received data channel from ${sessionId}`);
 
-        // Find or create peer info
-        let peer = this._peers.get(sessionId);
+        // Get peer info (should already be stored from _processPeers)
+        const peer = this._peers.get(sessionId);
         if (!peer) {
-          // Extract peer info from worker data
-          peer = {
-            id: sessionId,
-            clientId: 'unknown', // Will be updated from worker response
-            isDesktop: false,
-          };
+          console.warn(`[P2PCF] No peer metadata found for ${sessionId}`);
+          return;
         }
 
         this._setupDataChannel(sessionId, event.channel, peer);
