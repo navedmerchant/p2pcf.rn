@@ -9660,6 +9660,7 @@ __metadata:
     react-native: 0.81.1
     react-native-builder-bob: ^0.40.14
     react-native-monorepo-config: ^0.1.9
+    react-native-webrtc: ">=124.0.0"
   languageName: unknown
   linkType: soft
 
@@ -10171,7 +10172,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-native-webrtc@npm:^124.0.7":
+"react-native-webrtc@npm:>=124.0.0, react-native-webrtc@npm:^124.0.7":
   version: 124.0.7
   resolution: "react-native-webrtc@npm:124.0.7"
   dependencies:

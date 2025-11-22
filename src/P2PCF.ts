@@ -264,7 +264,10 @@ export class P2PCF extends EventEmitter {
           if (!this._dtlsFingerprint && pc.localDescription) {
             const match = pc.localDescription.sdp.match(/a=fingerprint:sha-256 (.+)/);
             if (match) {
-              this._dtlsFingerprint = match[1].replace(/:/g, '').toUpperCase();
+              // Convert hex fingerprint to base64 (worker expects 44-char base64)
+              const hexFingerprint = match[1].replace(/:/g, '');
+              const bytes = new Uint8Array(hexFingerprint.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16)));
+              this._dtlsFingerprint = btoa(String.fromCharCode(...bytes));
               console.log(`[P2PCF] DTLS fingerprint: ${this._dtlsFingerprint}`);
             }
           }
