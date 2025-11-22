@@ -1,135 +1,119 @@
 /**
- * Type definitions for P2PCF React Native
+ * P2PCF Types
+ * TypeScript interfaces and types for P2PCF library
  */
 
+/**
+ * Configuration options for P2PCF
+ */
 export interface P2PCFOptions {
   /**
-   * URL of the Cloudflare Worker for signaling
-   * @default 'https://p2pcf.minddrop.workers.dev'
+   * Identifies if this peer is the desktop hub
+   * Desktop: waits for connections (passive)
+   * Mobile: initiates connections (active)
    */
-  workerUrl?: string;
+  isDesktop: boolean;
 
   /**
-   * STUN ICE servers configuration
+   * Cloudflare Worker URL for signaling
    */
-  stunIceServers?: any[];
+  workerUrl: string;
 
   /**
-   * TURN ICE servers configuration
+   * WebRTC configuration (STUN/TURN servers)
    */
-  turnIceServers?: any[];
+  rtcConfig?: any; // RTCConfiguration from WebRTC
 
   /**
-   * RTCPeerConnection configuration options
+   * Polling interval in milliseconds
+   * @default 3000
    */
-  rtcPeerConnectionOptions?: any;
-
-  /**
-   * Proprietary constraints for RTCPeerConnection
-   */
-  rtcPeerConnectionProprietaryConstraints?: any;
-
-  /**
-   * SDP transform function
-   */
-  sdpTransform?: (sdp: string) => string;
-
-  /**
-   * Network change polling interval in milliseconds
-   * @default 15000
-   */
-  networkChangePollIntervalMs?: number;
-
-  /**
-   * State expiration interval in milliseconds
-   * @default 120000 (2 minutes)
-   */
-  stateExpirationIntervalMs?: number;
-
-  /**
-   * State heartbeat window in milliseconds
-   * @default 30000
-   */
-  stateHeartbeatWindowMs?: number;
-
-  /**
-   * Fast polling duration in milliseconds
-   * @default 10000
-   */
-  fastPollingDurationMs?: number;
-
-  /**
-   * Fast polling rate in milliseconds
-   * @default 1500
-   */
-  fastPollingRateMs?: number;
-
-  /**
-   * Slow polling rate in milliseconds
-   * @default 5000
-   */
-  slowPollingRateMs?: number;
-
-  /**
-   * Idle polling trigger delay in milliseconds
-   * @default Infinity
-   */
-  idlePollingAfterMs?: number;
-
-  /**
-   * Idle polling rate in milliseconds
-   * @default Infinity
-   */
-  idlePollingRateMs?: number;
+  pollingInterval?: number;
 }
 
+/**
+ * Represents a peer in the P2P network
+ */
 export interface Peer {
   /**
-   * Unique session ID of the peer
+   * Unique session ID
    */
-  id?: string;
+  id: string;
 
   /**
-   * Client ID of the peer
+   * Client identifier (user-provided)
    */
-  client_id?: string;
+  clientId: string;
 
   /**
-   * Whether the peer connection is established
+   * Whether this peer is a desktop hub
    */
-  connected: boolean;
-
-  /**
-   * Send data to the peer
-   */
-  send: (data: ArrayBuffer) => void;
-
-  /**
-   * Destroy the peer connection
-   */
-  destroy: () => void;
+  isDesktop: boolean;
 }
 
+/**
+ * Event types emitted by P2PCF
+ */
+export type P2PCFEventType = 'peerconnect' | 'peerclose' | 'msg' | 'error';
+
+/**
+ * Event handlers for P2PCF events
+ */
 export interface P2PCFEvents {
-  /**
-   * Emitted when a peer connection is established
-   */
   peerconnect: (peer: Peer) => void;
-
-  /**
-   * Emitted when a peer connection is closed
-   */
   peerclose: (peer: Peer) => void;
-
-  /**
-   * Emitted when a message is received from a peer
-   */
   msg: (peer: Peer, data: ArrayBuffer) => void;
-
-  /**
-   * Emitted when an error occurs
-   */
   error: (error: Error) => void;
 }
 
-export type P2PCFEventType = keyof P2PCFEvents;
+/**
+ * Worker registration payload
+ */
+export interface WorkerPayload {
+  r: string; // room ID
+  k: string; // context ID
+  d: [string, string, boolean, string, number, string[]]; // peer data
+  t: number; // timestamp
+  x: number; // expiration
+  p: WorkerPackage[]; // packages
+}
+
+/**
+ * Package sent to worker (array format expected by worker)
+ * Format: [to, from, type, data]
+ * - to: destination session ID
+ * - from: sender's session ID
+ * - type: 'offer' | 'answer' | 'ice'
+ * - data: SDP or ICE candidate data
+ */
+export type WorkerPackage = [string, string, string, any]; // [to, from, type, data]
+
+/**
+ * Worker response
+ */
+export interface WorkerResponse {
+  ps: PeerData[]; // discovered peers
+  pk: IncomingPackage[]; // packages for this peer
+  dk: string; // delete key
+}
+
+/**
+ * Peer data from worker
+ */
+export interface PeerData {
+  0: string; // sessionId
+  1: string; // clientId
+  2: boolean; // isDesktop
+  3: string; // dtls fingerprint
+  4: number; // timestamp
+  5: string[]; // reflexive IPs
+}
+
+/**
+ * Incoming package from worker
+ */
+export interface IncomingPackage {
+  from: string; // source session ID
+  type: 'offer' | 'answer' | 'ice';
+  data: any;
+}
