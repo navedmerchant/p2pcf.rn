@@ -21,8 +21,8 @@ interface Message {
 
 export default function App() {
   // Connection settings
-  const [workerUrl] = useState('https://p2pcf.mindrop.workers.dev');
-  const [roomId, setRoomId] = useState('CY5WRMY76');
+  const [workerUrl] = useState('https://p2pcf.naved-merchant.workers.dev');
+  const [roomId, setRoomId] = useState('Z2AAFZ7EC');
   const [clientId, setClientId] = useState(
     `mobile-${Math.random().toString(36).substring(2, 8)}`
   );
