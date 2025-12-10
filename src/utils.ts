@@ -172,8 +172,8 @@ export function bytesToString(bytes: Uint8Array): string {
  */
 export function generateUUID(): string {
   // Use crypto.randomUUID if available
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) {
+    return (crypto as any).randomUUID();
   }
 
   // Fallback UUID generation
