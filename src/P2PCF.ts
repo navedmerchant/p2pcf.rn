@@ -230,6 +230,20 @@ export class P2PCF extends EventEmitter {
   }
 
   /**
+   * Check if there is a desktop peer in the room
+   * For mobile: returns true if connected to a desktop peer
+   * For desktop: returns true (desktop is always present - itself)
+   */
+  hasDesktopPeer(): boolean {
+    if (this._isDesktop) {
+      // Desktop peer is always present (itself)
+      return true;
+    }
+    // Mobile: check if we have a desktop peer connection
+    return this._desktopPeer !== null;
+  }
+
+  /**
    * Cleanup and destroy all connections
    */
   async destroy(): Promise<void> {
