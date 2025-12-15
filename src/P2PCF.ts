@@ -533,7 +533,7 @@ export class P2PCF extends EventEmitter {
         this._reflexiveIPs,
       ],
       t: Date.now(),
-      x: 86400000, // 24 hours in milliseconds
+      x: 60000, // 1 minute in milliseconds
       p: this._pendingPackages,
     };
 
@@ -586,7 +586,7 @@ export class P2PCF extends EventEmitter {
         this._reflexiveIPs,
       ],
       t: Date.now(),
-      x: 86400000, // 24 hours in milliseconds
+      x: 60000, // 1 minute in milliseconds
       p: [],
       dk: this._deleteKey,
     };
