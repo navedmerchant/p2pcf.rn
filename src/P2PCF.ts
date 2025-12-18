@@ -14,11 +14,12 @@ import type {
   PeerData,
 } from './types';
 import { generateSessionId, generateUUID } from './utils';
+import { P2PCFStorage } from './storage';
 
 // Platform detection and WebRTC imports
 const isReactNative =
   typeof navigator !== 'undefined' &&
-  (navigator as any).product === 'ReactNative';
+  (navigator as any)?.product === 'ReactNative';
 
 let RTCPeerConnection: any;
 let RTCIceCandidate: any;
@@ -142,7 +143,8 @@ export class P2PCF extends EventEmitter {
     this._pollingInterval = options.pollingInterval || 3000;
 
     this._sessionId = generateSessionId();
-    this._contextId = generateUUID();
+    // contextId will be loaded asynchronously in start() - use temporary value for now
+    this._contextId = '';
     this._startTimestamp = Date.now();
 
     console.log(
@@ -165,6 +167,17 @@ export class P2PCF extends EventEmitter {
     console.log('[P2PCF] Starting...');
 
     try {
+      // Load or generate contextId (persisted across app restarts)
+      let contextId = await P2PCFStorage.getContextId();
+      if (!contextId) {
+        contextId = generateUUID();
+        await P2PCFStorage.setContextId(contextId);
+        console.log(`[P2PCF] Generated new context ID: ${contextId}`);
+      } else {
+        console.log(`[P2PCF] Loaded existing context ID: ${contextId}`);
+      }
+      this._contextId = contextId;
+
       // Detect network settings using STUN
       await this._detectNetworkSettings();
 
@@ -294,6 +307,17 @@ export class P2PCF extends EventEmitter {
     this._pendingIceCandidates.clear();
 
     console.log('[P2PCF] Destroyed');
+  }
+
+  /**
+   * Reset the stored context ID (useful for debugging or getting a fresh identity)
+   * This will generate a new context ID on the next start()
+   */
+  static async resetContextId(): Promise<void> {
+    await P2PCFStorage.clearContextId();
+    console.log(
+      '[P2PCF] Context ID reset - a new one will be generated on next start'
+    );
   }
 
   // ============================================================================
